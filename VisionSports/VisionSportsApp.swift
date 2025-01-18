@@ -7,6 +7,7 @@
 
 import SwiftUI
 
+
 struct VisionSportsApp: App {
     var body: some Scene {
         WindowGroup {

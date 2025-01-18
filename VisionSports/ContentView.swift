@@ -4,212 +4,148 @@
 //
 //  Created by Sophia Bao on 2024-09-23.
 //
+//
+//  ContentView.swift
+//  VisionSports
+//
+//  Created by Sophia Bao on 2024-09-23.
+//
 import SwiftUI
-import RealityKit
-import RealityKitContent
 import AVKit
 
-@main
-struct PanoramaVideoApp: SwiftUI.App {
-    var body: some SwiftUI.Scene {
-        WindowGroup {
-            ContentView()
+struct VideoItem: Identifiable {
+    let id = UUID()
+    let name: String
+}
+
+struct ContentView: View {
+    @State private var selectedVideo: VideoItem? = nil
+
+    let videoSources = [
+        "sailing1.mp4",
+        "sailing2.mp4",
+        "snowboarding.mp4"
+    ]
+
+    var body: some View {
+        VStack {
+            Text("Video Library")
+                .font(.largeTitle)
+                .padding()
+
+            List(videoSources, id: \.self) { video in
+                Button(action: {
+                    selectedVideo = VideoItem(name: video)
+                }) {
+                    Text(video)
+                        .font(.headline)
+                }
+            }
+        }
+        .sheet(item: $selectedVideo) { videoItem in
+            VideoPlayerView(videoName: videoItem.name)
+                .frame(minWidth: 1000, minHeight: 800)
+                .background(ResizableBackground()) // Add a resizable background for corner dragging
         }
     }
 }
 
-struct ContentView: View {
-    @State private var selectedVideo: URL? = Bundle.main.url(forResource: "spatial_video", withExtension: "mp4")
-    @State private var showVideoPicker = false
+struct VideoPlayerView: View {
+    @Environment(\.dismiss) var dismiss
+    @State private var player: AVPlayer? = nil
+    @State private var isPaused = true
+
+    let videoName: String
 
     var body: some View {
         VStack {
-            Text("Panorama Video Player")
-                .font(.largeTitle)
-                .padding()
+            VideoPlayer(player: player)
+                .onAppear {
+                    if let path = Bundle.main.path(forResource: videoName, ofType: nil) {
+                        player = AVPlayer(url: URL(fileURLWithPath: path))
+                        player?.play()
+                        isPaused = false
+                        addPauseAtSpecificTime(player: player, pauseTime: 5)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .gesture(
+                    MagnificationGesture()
+                        .onEnded { value in
+                            if value < 1.0 { // Simulating a pinching motion
+                                if isPaused {
+                                    player?.play()
+                                    isPaused = false
+                                }
+                            }
+                        }
+                )
 
-            if let video = selectedVideo {
-                NavigationLink(destination: PanoramaPlayerView(videoURL: video)) {
-                    Text("Play Spatial Video")
+            HStack {
+                Button(action: {
+                    player?.pause()
+                    dismiss()
+                }) {
+                    Text("Back to Library")
+                        .font(.title2)
                         .padding()
                         .background(Color.blue)
                         .foregroundColor(.white)
                         .cornerRadius(10)
                 }
-            } else {
-                Text("No video found")
-                    .padding()
-                    .foregroundColor(.red)
-            }
+                .padding()
 
-            Button(action: {
-                showVideoPicker = true
-            }) {
-                Text("Select Video")
-                    .padding()
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+                Button(action: {
+                    player?.seek(to: .zero)
+                    player?.play()
+                }) {
+                    Text("Restart Video")
+                        .font(.title2)
+                        .padding()
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+                .padding()
             }
         }
-        .sheet(isPresented: $showVideoPicker) {
-            VideoPicker(selectedVideo: $selectedVideo)
+    }
+
+    private func addPauseAtSpecificTime(player: AVPlayer?, pauseTime: Double) {
+        player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { time in
+            let currentTime = CMTimeGetSeconds(time)
+            if abs(currentTime - pauseTime) < 0.1 && !isPaused {
+                player?.pause()
+                isPaused = true
+            }
         }
     }
 }
 
-struct PanoramaPlayerView: View {
-    let videoURL: URL
-    @State private var isPlaying = true
+struct ResizableBackground: View {
+    @State private var size: CGSize = CGSize(width: 600, height: 400)
 
     var body: some View {
-        RealityKitPanoramaPlayer(videoURL: videoURL, isPlaying: $isPlaying)
-            .edgesIgnoringSafeArea(.all)
-    }
-}
-
-struct RealityKitPanoramaPlayer: UIViewControllerRepresentable {
-    let videoURL: URL
-    @Binding var isPlaying: Bool
-
-    func makeUIViewController(context: Context) -> PanoramaPlayerController {
-        let controller = PanoramaPlayerController(videoURL: videoURL)
-        controller.gestureDelegate = context.coordinator
-        return controller
-    }
-
-    func updateUIViewController(_ uiViewController: PanoramaPlayerController, context: Context) {
-        uiViewController.setPlaybackState(isPlaying)
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    class Coordinator: NSObject, GestureDelegate {
-        let parent: RealityKitPanoramaPlayer
-
-        init(_ parent: RealityKitPanoramaPlayer) {
-            self.parent = parent
-        }
-
-        func gestureRecognized() {
-            parent.isPlaying = true
+        GeometryReader { geometry in
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            size.width = max(2000, size.width + value.translation.width)
+                            size.height = max(1600, size.height + value.translation.height)
+                        }
+                )
+                .frame(width: size.width, height: size.height)
         }
     }
 }
 
-class PanoramaPlayerController: UIViewController {
-    private let videoURL: URL
-    private var videoPlayer: AVPlayer!
-    private var videoNode: ModelEntity!
-    private var anchorEntity: AnchorEntity!
-    private var realityView: RealityView<Entity>!
-    var gestureDelegate: GestureDelegate?
-
-    init(videoURL: URL) {
-        self.videoURL = videoURL
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        // Create RealityView
-        realityView = RealityView { content in
-            self.setupPanoramaScene(for: content)
-        }
-
-        view.addSubview(realityView)
-        realityView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            realityView.topAnchor.constraint(equalTo: view.topAnchor),
-            realityView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            realityView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            realityView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
-        ])
-
-        setupGestureRecognition()
-    }
-
-    private func setupPanoramaScene(for content: RealityView<Entity>.Content) {
-        let sphere = MeshResource.generateSphere(radius: 10)
-        videoPlayer = AVPlayer(url: videoURL)
-        let material = VideoMaterial(avPlayer: videoPlayer)
-
-        videoNode = ModelEntity(mesh: sphere, materials: [material])
-        videoNode.transform = Transform(pitch: .pi / 2, yaw: 0, roll: 0)
-
-        anchorEntity = AnchorEntity(world: .zero)
-        anchorEntity.addChild(videoNode)
-
-        content.add(anchorEntity)
-        videoPlayer.play()
-    }
-
-    private func setupGestureRecognition() {
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleGesture))
-        view.addGestureRecognizer(tapGesture)
-    }
-
-    @objc private func handleGesture() {
-        if videoPlayer.timeControlStatus == .playing {
-            videoPlayer.pause()
-        } else {
-            videoPlayer.play()
-        }
-        gestureDelegate?.gestureRecognized()
-    }
-
-    func setPlaybackState(_ playing: Bool) {
-        if playing {
-            videoPlayer.play()
-        } else {
-            videoPlayer.pause()
-        }
-    }
-}
-
-protocol GestureDelegate {
-    func gestureRecognized()
-}
-
-struct VideoPicker: UIViewControllerRepresentable {
-    @Binding var selectedVideo: URL?
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.mediaTypes = ["public.movie"]
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let parent: VideoPicker
-
-        init(_ parent: VideoPicker) {
-            self.parent = parent
-        }
-
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-            if let url = info[.mediaURL] as? URL {
-                parent.selectedVideo = url
-            }
-            picker.dismiss(animated: true)
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            picker.dismiss(animated: true)
+@main
+struct VisionProVideoApp: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
         }
     }
 }
